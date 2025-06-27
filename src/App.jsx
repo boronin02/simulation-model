@@ -5,67 +5,70 @@ import { Pharmacy } from './components/Pharmacy';
 import { Quarantine } from './components/Quarantine';
 
 const App = () => {
-  // Параметры симуляции
+  // Параметры симуляции (хранятся в useRef для постоянного доступа)
   const paramsRef = useRef({
-    population: 150,
-    initialInfected: 5,
-    infectionRate: 0.4,
-    infectionDistance: 20,
-    recoveryTime: 2000,
-    mortalityRate: 0.12,
-    simulationSpeed: 60,
-    pharmacyCount: 4,
-    pharmacyRadius: 35,
-    pharmacyRecoveryBoost: 3,
-    quarantineCount: 3,
-    quarantineRadius: 60,
-    quarantineInfectionReduction: 0.5,
-    reinfectionRate: 0.1,
-    width: 1200,
-    height: 700,
-    incubationPeriodRatio: 0.3,
-    progressionPeriodRatio: 0.5,
-    minRecoveryVariation: 0.7,
-    maxRecoveryVariation: 1.3
+    population: 150,             // Общее количество людей
+    initialInfected: 5,          // Начальное количество зараженных
+    infectionRate: 0.4,          // Базовая вероятность заражения
+    infectionDistance: 20,       // Радиус заражения в пикселях
+    recoveryTime: 2000,          // Базовое время болезни (в кадрах)
+    mortalityRate: 0.12,         // Шанс смертельного исхода
+    simulationSpeed: 60,         // Множитель скорости симуляции
+    pharmacyCount: 4,            // Количество аптек
+    pharmacyRadius: 35,          // Радиус действия аптек
+    pharmacyRecoveryBoost: 3,    // Ускорение лечения в аптеках
+    quarantineCount: 3,          // Количество карантинных зон
+    quarantineRadius: 60,        // Радиус карантинных зон
+    quarantineInfectionReduction: 0.5, // Снижение заразности в карантине
+    reinfectionRate: 0.1,        // Шанс повторного заражения
+    width: 1200,                 // Ширина поля
+    height: 700,                 // Высота поля
+    incubationPeriodRatio: 0.3,  // Доля инкубационного периода
+    progressionPeriodRatio: 0.5, // Доля активной фазы болезни
+    minRecoveryVariation: 0.7,   // Минимальная вариация времени болезни
+    maxRecoveryVariation: 1.3    // Максимальная вариация времени болезни
   });
 
+  // Состояние для отображения параметров (синхронизируется с paramsRef)
   const [displayParams, setDisplayParams] = useState({ ...paramsRef.current });
+
+  // Статистика симуляции
   const [stats, setStats] = useState({
-    healthy: 0,
-    infected: 0,
-    recovered: 0,
-    deceased: 0,
-    inPharmacy: 0,
-    inQuarantine: 0,
-    contagious: 0
+    healthy: 0,      // Количество здоровых
+    infected: 0,     // Количество зараженных
+    recovered: 0,    // Количество выздоровевших
+    deceased: 0,     // Количество умерших
+    inPharmacy: 0,   // Количество людей в аптеках
+    inQuarantine: 0, // Количество людей в карантине
+    contagious: 0    // Количество заразных (в активной фазе)
   });
 
-  const [isRunning, setIsRunning] = useState(false);
-  const [showInfectionRadius, setShowInfectionRadius] = useState(false);
-  const [pulsePhase, setPulsePhase] = useState(0);
+  // Состояния управления
+  const [isRunning, setIsRunning] = useState(false);         // Флаг работы симуляции
+  const [showInfectionRadius, setShowInfectionRadius] = useState(false); // Показать радиус заражения
+  const [pulsePhase, setPulsePhase] = useState(0);           // Фаза анимации пульсации
 
-  // Refs
-  const canvasRef = useRef(null);
-  const peopleRef = useRef([]);
-  const pharmaciesRef = useRef([]);
-  const quarantinesRef = useRef([]);
-  const animationFrameId = useRef(null);
-  const lastUpdateTime = useRef(0);
-  const isRunningRef = useRef(false);
+  // Refs для хранения изменяемых данных
+  const canvasRef = useRef(null);              // Ссылка на canvas элемент
+  const peopleRef = useRef([]);                // Массив людей
+  const pharmaciesRef = useRef([]);            // Массив аптек
+  const quarantinesRef = useRef([]);           // Массив карантинных зон
+  const animationFrameId = useRef(null);       // ID анимационного фрейма
+  const lastUpdateTime = useRef(0);            // Время последнего обновления
+  const isRunningRef = useRef(false);          // Ref-версия isRunning
 
+  // Функция обновления параметров
   const updateParam = (name, value) => {
     const numValue = typeof value === 'number' ? value : parseFloat(value);
 
-    // Обновляем параметры
+    // Обновляем параметры в ref и состоянии
     paramsRef.current = { ...paramsRef.current, [name]: numValue };
     setDisplayParams(prev => ({ ...prev, [name]: numValue }));
 
-    // Для некоторых параметров нужно перезапускать симуляцию
+    // Параметры, требующие перезапуска симуляции
     const shouldReset = [
-      'population',
-      'initialInfected',
-      'pharmacyCount',
-      'quarantineCount'
+      'population', 'initialInfected',
+      'pharmacyCount', 'quarantineCount'
     ].includes(name);
 
     if (shouldReset) {
@@ -77,39 +80,58 @@ const App = () => {
     }
   };
 
+  // Синхронизация ref и состояния isRunning
   useEffect(() => {
     isRunningRef.current = isRunning;
   }, [isRunning]);
 
-  // Инициализация объектов
+  // Инициализация объектов (аптек и карантинных зон)
   const initObjects = useCallback(() => {
     pharmaciesRef.current = Array.from({ length: paramsRef.current.pharmacyCount }, (_, i) =>
-      new Pharmacy(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, paramsRef)
+      new Pharmacy(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        paramsRef
+      )
     );
 
     quarantinesRef.current = Array.from({ length: paramsRef.current.quarantineCount }, (_, i) =>
-      new Quarantine(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, paramsRef)
+      new Quarantine(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        paramsRef
+      )
     );
   }, []);
 
-  // Инициализация симуляции
+  // Инициализация симуляции (создание людей и объектов)
   const initSimulation = useCallback(() => {
     initObjects();
 
+    // Создаем массив людей
     peopleRef.current = Array.from({ length: paramsRef.current.population }, (_, i) => {
       const status = i < paramsRef.current.initialInfected ? 'infected' : 'healthy';
-      return new Person(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, status, paramsRef);
+      return new Person(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        status,
+        paramsRef
+      );
     });
 
     updateStats();
     drawSimulation();
   }, [initObjects]);
 
-  // Отрисовка радиуса заражения
+  // Отрисовка радиуса заражения (с анимацией пульсации)
   const drawInfectionRadius = useCallback((ctx, person) => {
-    const pulseFactor = 1 + 0.1 * Math.sin(pulsePhase);
+    const pulseFactor = 1 + 0.1 * Math.sin(pulsePhase); // Пульсация
     const currentRadius = paramsRef.current.infectionDistance * pulseFactor;
 
+    // Создаем градиент для плавного исчезновения
     const gradient = ctx.createRadialGradient(
       person.x, person.y, 0,
       person.x, person.y, currentRadius
@@ -117,11 +139,13 @@ const App = () => {
     gradient.addColorStop(0, 'rgba(255, 100, 100, 0.3)');
     gradient.addColorStop(1, 'rgba(255, 100, 100, 0)');
 
+    // Рисуем заполненный круг
     ctx.beginPath();
     ctx.arc(person.x, person.y, currentRadius, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
 
+    // Рисуем пунктирную границу
     ctx.setLineDash([3, 3]);
     ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
     ctx.lineWidth = 1;
@@ -129,9 +153,9 @@ const App = () => {
     ctx.setLineDash([]);
   }, [pulsePhase]);
 
-  // Отрисовка персонажа
+  // Отрисовка одного человека
   const drawPerson = useCallback((ctx, person) => {
-    const radius = person.status === 'infected' ? 6 : 5;
+    const radius = person.status === 'infected' ? 6 : 5; // Зараженные больше
     ctx.beginPath();
     ctx.arc(person.x, person.y, radius, 0, Math.PI * 2);
     ctx.fillStyle = person.color;
@@ -141,7 +165,7 @@ const App = () => {
     ctx.stroke();
   }, []);
 
-  // Основная отрисовка
+  // Основная функция отрисовки
   const drawSimulation = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -149,9 +173,10 @@ const App = () => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // Очищаем canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // 1. Рисуем радиусы заражения
+    // 1. Рисуем радиусы заражения (если включено)
     if (showInfectionRadius) {
       peopleRef.current.forEach(person => {
         if (person.status === 'infected') {
@@ -160,38 +185,38 @@ const App = () => {
       });
     }
 
-    // 2. Рисуем зоны
+    // 2. Рисуем зоны (аптеки и карантины)
     quarantinesRef.current.forEach(q => q.draw(ctx));
     pharmaciesRef.current.forEach(p => p.draw(ctx));
 
-    // 3. Рисуем людей
+    // 3. Рисуем людей поверх всего
     peopleRef.current.forEach(person => {
       drawPerson(ctx, person);
     });
   }, [showInfectionRadius, drawInfectionRadius, drawPerson]);
 
-  // Игровой цикл
+  // Игровой цикл (вызывается requestAnimationFrame)
   const gameLoop = useCallback((timestamp) => {
     if (!isRunningRef.current) return;
 
-    if (!lastUpdateTime.current) {
-      lastUpdateTime.current = timestamp;
-    }
-
+    // Вычисляем дельту времени
+    if (!lastUpdateTime.current) lastUpdateTime.current = timestamp;
     const deltaTime = timestamp - lastUpdateTime.current;
     lastUpdateTime.current = timestamp;
 
     // Анимация пульсации радиуса
     setPulsePhase(prev => (prev + 0.02) % (Math.PI * 2));
 
+    // Обновляем симуляцию с учетом скорости
     const scaledDeltaTime = deltaTime * (paramsRef.current.simulationSpeed / 60);
     updateSimulation(scaledDeltaTime);
     drawSimulation();
 
+    // Запрашиваем следующий кадр
     animationFrameId.current = requestAnimationFrame(gameLoop);
   }, [drawSimulation]);
 
-  // Обновление симуляции
+  // Обновление состояния симуляции
   const updateSimulation = (deltaTime) => {
     peopleRef.current.forEach(person => {
       person.move(pharmaciesRef.current, quarantinesRef.current, deltaTime);
@@ -214,11 +239,14 @@ const App = () => {
       contagious: 0
     };
 
+    // Считаем количество людей в каждом состоянии
     peopleRef.current.forEach(person => {
       newStats[person.status]++;
       if (person.inPharmacy) newStats.inPharmacy++;
       if (person.inQuarantine) newStats.inQuarantine++;
-      if (person.status === 'infected' && person.infectionStage === 'progression') newStats.contagious++;
+      if (person.status === 'infected' && person.infectionStage === 'progression') {
+        newStats.contagious++;
+      }
     });
 
     setStats(newStats);
@@ -252,15 +280,19 @@ const App = () => {
     setShowInfectionRadius(!showInfectionRadius);
   };
 
-  // Автоматическая перерисовка при изменениях
+  // Автоматическая перерисовка при изменении видимости радиуса
   useEffect(() => {
     drawSimulation();
   }, [showInfectionRadius, drawSimulation]);
 
-  // Инициализация при монтировании
+  // Инициализация при монтировании компонента
   useEffect(() => {
     initSimulation();
-    return () => cancelAnimationFrame(animationFrameId.current);
+    return () => {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+    };
   }, [initSimulation]);
 
 
