@@ -1,198 +1,433 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { EpidemicModel } from './components/EpidemicModel';
-import { SimulationRenderer } from './components/SimulationRenderer';
-import { SimulationControls } from './components/SimulationControls';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './App.css';
+import { Person } from './components/Person';
+import { Pharmacy } from './components/Pharmacy';
+import { Quarantine } from './components/Quarantine';
 
 const App = () => {
-  const [params, setParams] = useState({
-    population: 100,
-    initialInfected: 3,
-    infectionRate: 0.3,
-    infectionDistance: 10,
-    recoveryTime: 200,
-    mortalityRate: 0.02,
+  // Параметры симуляции
+  const paramsRef = useRef({
+    population: 150,
+    initialInfected: 5,
+    infectionRate: 0.4,
+    infectionDistance: 15,
+    recoveryTime: 2000,          // Увеличенное общее время болезни
+    mortalityRate: 0.12,
     simulationSpeed: 60,
+    pharmacyCount: 4,
+    pharmacyRadius: 35,
+    pharmacyRecoveryBoost: 3,
+    quarantineCount: 3,
+    quarantineRadius: 60,
+    quarantineInfectionReduction: 0.5,
+    reinfectionRate: 0.1,
     width: 1200,
-    height: 600
+    height: 700,
+    // Новые параметры стадий болезни:
+    incubationPeriodRatio: 0.3,   // 30% времени - инкубационный период
+    progressionPeriodRatio: 0.5,  // 50% времени - активная фаза
+    // Оставшиеся 20% - фаза выздоровления
+    minRecoveryVariation: 0.7,    // Минимальная вариация времени болезни
+    maxRecoveryVariation: 1.3     // Максимальная вариация времени болезни
   });
 
-  const paramsRef = useRef(params);
+  // Состояние для отображения
+  const [displayParams, setDisplayParams] = useState({ ...paramsRef.current });
   const [stats, setStats] = useState({
     healthy: 0,
     infected: 0,
     recovered: 0,
-    deceased: 0
+    deceased: 0,
+    inPharmacy: 0,
+    inQuarantine: 0,
+    contagious: 0
   });
 
+  const [isRunning, setIsRunning] = useState(false);
+  const [showInfectionRadius, setShowInfectionRadius] = useState(false);
+
+  // Refs
   const canvasRef = useRef(null);
-  const modelRef = useRef(null);
-  const rendererRef = useRef(null);
-  const controlsRef = useRef(null);
+  const peopleRef = useRef([]);
+  const pharmaciesRef = useRef([]);
+  const quarantinesRef = useRef([]);
+  const animationFrameId = useRef(null);
+  const lastUpdateTime = useRef(0);
+  const isRunningRef = useRef(false);
 
-  useEffect(() => {
-    paramsRef.current = params;
-  }, [params]);
-
-  useEffect(() => {
-    modelRef.current = new EpidemicModel(paramsRef);
-    rendererRef.current = new SimulationRenderer(canvasRef, modelRef.current);
-    controlsRef.current = new SimulationControls(
-      modelRef.current,
-      rendererRef.current,
-      setStats
+  // Инициализация объектов
+  const initObjects = useCallback(() => {
+    pharmaciesRef.current = Array.from({ length: paramsRef.current.pharmacyCount }, (_, i) =>
+      new Pharmacy(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        paramsRef
+      )
     );
-    controlsRef.current.setSpeed(params.simulationSpeed);
-    controlsRef.current.reset();
 
-    return () => controlsRef.current.stop();
+    quarantinesRef.current = Array.from({ length: paramsRef.current.quarantineCount }, (_, i) =>
+      new Quarantine(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        paramsRef
+      )
+    );
   }, []);
 
-  const updateParam = (name, value) => {
-    setParams(prev => {
-      const newParams = { ...prev, [name]: value };
-      if (name === 'simulationSpeed') {
-        controlsRef.current?.setSpeed(value);
-      }
-      return newParams;
-    });
-  };
+  // Инициализация симуляции
+  const initSimulation = useCallback(() => {
+    initObjects();
 
-  const toggleInfectionRadius = () => {
-    rendererRef.current?.toggleInfectionRadius();
-    // Принудительная перерисовка, если симуляция запущена
-    if (controlsRef.current?.isRunning) {
-      rendererRef.current?.draw();
+    peopleRef.current = Array.from({ length: paramsRef.current.population }, (_, i) => {
+      const status = i < paramsRef.current.initialInfected ? 'infected' : 'healthy';
+      return new Person(
+        i,
+        Math.random() * paramsRef.current.width,
+        Math.random() * paramsRef.current.height,
+        status,
+        paramsRef
+      );
+    });
+
+    updateStats();
+    drawSimulation();
+  }, [initObjects]);
+
+  // Игровой цикл
+  const gameLoop = useCallback((timestamp) => {
+    if (!isRunningRef.current) return;
+
+    if (!lastUpdateTime.current) {
+      lastUpdateTime.current = timestamp;
+    }
+
+    const deltaTime = timestamp - lastUpdateTime.current;
+    lastUpdateTime.current = timestamp;
+
+    const scaledDeltaTime = deltaTime * (paramsRef.current.simulationSpeed / 60);
+    updateSimulation(scaledDeltaTime);
+    drawSimulation();
+
+    animationFrameId.current = requestAnimationFrame(gameLoop);
+  }, []);
+
+  // Управление симуляцией
+  const startSimulation = () => {
+    if (!isRunningRef.current) {
+      setIsRunning(true);
+      isRunningRef.current = true;
+      lastUpdateTime.current = 0;
+      animationFrameId.current = requestAnimationFrame(gameLoop);
     }
   };
 
+  const stopSimulation = () => {
+    setIsRunning(false);
+    isRunningRef.current = false;
+    if (animationFrameId.current) {
+      cancelAnimationFrame(animationFrameId.current);
+      animationFrameId.current = null;
+    }
+  };
+
+  const resetSimulation = () => {
+    stopSimulation();
+    initSimulation();
+  };
+
+  // Обновление симуляции
+  const updateSimulation = (deltaTime) => {
+    peopleRef.current.forEach(person => {
+      person.move(pharmaciesRef.current, quarantinesRef.current, deltaTime);
+      if (person.status === 'infected') {
+        person.tryInfectOthers(peopleRef.current, quarantinesRef.current);
+      }
+    });
+    updateStats();
+  };
+
+  // Отрисовка
+  const drawSimulation = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, paramsRef.current.width, paramsRef.current.height);
+
+    // Сначала рисуем все радиусы заражения под людьми
+    if (showInfectionRadius) {
+      peopleRef.current.forEach(person => {
+        if (person.status === 'infected') {
+          // Градиент для радиуса заражения
+          const gradient = ctx.createRadialGradient(
+            person.x, person.y, 0,
+            person.x, person.y, paramsRef.current.infectionDistance
+          );
+          gradient.addColorStop(0, 'rgba(255, 100, 100, 0.2)');
+          gradient.addColorStop(0.7, 'rgba(255, 50, 50, 0.1)');
+          gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+
+          ctx.beginPath();
+          ctx.arc(person.x, person.y, paramsRef.current.infectionDistance, 0, Math.PI * 2);
+          ctx.fillStyle = gradient;
+          ctx.fill();
+
+          // Точечная граница радиуса
+          ctx.setLineDash([3, 3]);
+          ctx.beginPath();
+          ctx.arc(person.x, person.y, paramsRef.current.infectionDistance, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      });
+    }
+
+    // Затем рисуем зоны (аптеки и карантины)
+    quarantinesRef.current.forEach(q => q.draw(ctx));
+    pharmaciesRef.current.forEach(p => p.draw(ctx));
+
+    // И поверх всего рисуем людей
+    peopleRef.current.forEach(person => {
+      // Разный размер в зависимости от стадии болезни
+      const radius = person.status === 'infected' ?
+        (person.infectionStage === 'progression' ? 7 : 5) : 5;
+
+      ctx.beginPath();
+      ctx.arc(person.x, person.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = person.color;
+      ctx.fill();
+
+      // Обводка для лучшей видимости
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#333';
+      ctx.stroke();
+      ctx.closePath();
+    });
+  };
+
+  // Обновление статистики
+  const updateStats = useCallback(() => {
+    const newStats = {
+      healthy: 0,
+      infected: 0,
+      recovered: 0,
+      deceased: 0,
+      inPharmacy: 0,
+      inQuarantine: 0,
+      contagious: 0
+    };
+
+    peopleRef.current.forEach(person => {
+      newStats[person.status]++;
+      if (person.inPharmacy) newStats.inPharmacy++;
+      if (person.inQuarantine) newStats.inQuarantine++;
+      if (person.status === 'infected' && person.infectionStage === 'progression') newStats.contagious++;
+    });
+
+    setStats(newStats);
+  }, []);
+
+  // Обработчик изменения параметров
+  const updateParam = (name, value) => {
+    const numValue = typeof value === 'number' ? value : parseFloat(value);
+
+    // Для параметров стадий болезни проверяем, чтобы сумма не превышала 100%
+    if (name === 'incubationPeriodRatio' || name === 'progressionPeriodRatio') {
+      const otherParam = name === 'incubationPeriodRatio' ? 'progressionPeriodRatio' : 'incubationPeriodRatio';
+      const total = numValue + paramsRef.current[otherParam];
+      if (total > 0.9) { // Оставляем минимум 10% на фазу выздоровления
+        return;
+      }
+    }
+
+    paramsRef.current = { ...paramsRef.current, [name]: numValue };
+    setDisplayParams(prev => ({ ...prev, [name]: numValue }));
+
+    if (['population', 'initialInfected', 'pharmacyCount', 'quarantineCount'].includes(name)) {
+      if (isRunningRef.current) resetSimulation();
+      else initSimulation();
+    }
+  };
+
+  // Инициализация
+  useEffect(() => {
+    initSimulation();
+    return () => cancelAnimationFrame(animationFrameId.current);
+  }, [initSimulation]);
+
   return (
     <div className="App">
-      <h1 className='app__header'>Эпидемиологическая модель</h1>
+      <h1>Реалистичная эпидемиологическая модель</h1>
 
       <div className="control-panels">
         <div className="control-panel">
-          <h3>Отображение</h3>
-          <div className="param">
-            <label>
-              <input
-                type="checkbox"
-                onChange={toggleInfectionRadius}
-              />
-              Показать зоны заражения
-            </label>
-          </div>
           <h3>Основные параметры</h3>
           <div className="param">
-            <label>Население:</label>
+            <label>Население: {displayParams.population}</label>
             <input
-              type="number"
-              min="10"
-              max="500"
-              value={params.population}
-              onChange={e => updateParam('population', parseInt(e.target.value))}
+              type="range" min="10" max="500" step="1"
+              value={displayParams.population}
+              onChange={e => updateParam('population', e.target.value)}
             />
           </div>
-
           <div className="param">
-            <label>Начальные зараженные:</label>
+            <label>Начальные зараженные: {displayParams.initialInfected}</label>
             <input
-              type="number"
-              min="1"
-              max={params.population}
-              value={params.initialInfected}
-              onChange={e => updateParam('initialInfected', parseInt(e.target.value))}
+              type="range" min="1" max={displayParams.population} step="1"
+              value={displayParams.initialInfected}
+              onChange={e => updateParam('initialInfected', e.target.value)}
             />
           </div>
-
           <div className="param">
-            <label>Скорость симуляции:</label>
+            <label>Скорость: {displayParams.simulationSpeed}x</label>
             <input
-              type="range"
-              min="1"
-              max="120"
-              value={params.simulationSpeed}
-              onChange={e => updateParam('simulationSpeed', parseInt(e.target.value))}
+              type="range" min="1" max="120" step="1"
+              value={displayParams.simulationSpeed}
+              onChange={e => updateParam('simulationSpeed', e.target.value)}
             />
-            <span>{params.simulationSpeed}</span>
+          </div>
+          <label>
+            <input
+              type="checkbox"
+              checked={showInfectionRadius}
+              onChange={() => setShowInfectionRadius(!showInfectionRadius)}
+            />
+            <span>Показать радиус заражения</span>
+            <div className="radius-preview" style={{
+              display: 'inline-block',
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              backgroundColor: 'rgba(255, 100, 100, 0.3)',
+              border: '1px dashed rgba(255, 0, 0, 0.5)',
+              marginLeft: '5px'
+            }} />
+          </label>
+        </div>
+
+        <div className="control-panel">
+          <h3>Стадии болезни</h3>
+          <div className="param">
+            <label>Инкубационный период: {(displayParams.incubationPeriodRatio * 100).toFixed(0)}%</label>
+            <input
+              type="range" min="10" max="60" step="1"
+              value={displayParams.incubationPeriodRatio * 100}
+              onChange={e => updateParam('incubationPeriodRatio', e.target.value / 100)}
+            />
+          </div>
+          <div className="param">
+            <label>Активная фаза: {(displayParams.progressionPeriodRatio * 100).toFixed(0)}%</label>
+            <input
+              type="range" min="20" max="70" step="1"
+              value={displayParams.progressionPeriodRatio * 100}
+              onChange={e => updateParam('progressionPeriodRatio', e.target.value / 100)}
+            />
+          </div>
+          <div className="param">
+            <label>Вариация длительности: ±{((displayParams.maxRecoveryVariation - 1) * 100).toFixed(0)}%</label>
+            <input
+              type="range" min="10" max="50" step="5"
+              value={(displayParams.maxRecoveryVariation - 1) * 100}
+              onChange={e => {
+                const variation = 1 + (parseInt(e.target.value) / 100);
+                updateParam('maxRecoveryVariation', variation);
+                updateParam('minRecoveryVariation', 2 - variation);
+              }}
+            />
           </div>
         </div>
 
         <div className="control-panel">
-          <h3>Параметры болезни</h3>
+          <h3>Зоны заражения</h3>
           <div className="param">
-            <label>Вероятность заражения:</label>
+            <label>Радиус: {displayParams.infectionDistance}</label>
             <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={params.infectionRate}
-              onChange={e => updateParam('infectionRate', parseFloat(e.target.value))}
-            />
-            <span>{params.infectionRate.toFixed(2)}</span>
-          </div>
-
-          <div className="param">
-            <label>Дистанция заражения:</label>
-            <input
-              type="range"
-              min="5"
-              max="20"
-              value={params.infectionDistance}
-              onChange={e => updateParam('infectionDistance', parseInt(e.target.value))}
-            />
-            <span>{params.infectionDistance}</span>
-          </div>
-
-          <div className="param">
-            <label>Время болезни:</label>
-            <input
-              type="number"
-              min="50"
-              max="500"
-              value={params.recoveryTime}
-              onChange={e => updateParam('recoveryTime', parseInt(e.target.value))}
+              type="range" min="5" max="30" step="1"
+              value={displayParams.infectionDistance}
+              onChange={e => updateParam('infectionDistance', e.target.value)}
             />
           </div>
-
           <div className="param">
-            <label>Смертность (%):</label>
+            <label>Вероятность: {displayParams.infectionRate.toFixed(2)}</label>
             <input
-              type="range"
-              min="0"
-              max="10"
-              step="0.1"
-              value={params.mortalityRate * 100}
-              onChange={e => updateParam('mortalityRate', parseFloat(e.target.value) / 100)}
+              type="range" min="0" max="1" step="0.01"
+              value={displayParams.infectionRate}
+              onChange={e => updateParam('infectionRate', e.target.value)}
             />
-            <span>{(params.mortalityRate * 100).toFixed(1)}%</span>
+          </div>
+        </div>
+
+        <div className="control-panel">
+          <h3>Аптеки</h3>
+          <div className="param">
+            <label>Количество: {displayParams.pharmacyCount}</label>
+            <input
+              type="range" min="0" max="10" step="1"
+              value={displayParams.pharmacyCount}
+              onChange={e => updateParam('pharmacyCount', e.target.value)}
+            />
+          </div>
+          <div className="param">
+            <label>Радиус: {displayParams.pharmacyRadius}</label>
+            <input
+              type="range" min="10" max="50" step="1"
+              value={displayParams.pharmacyRadius}
+              onChange={e => updateParam('pharmacyRadius', e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="control-panel">
+          <h3>Карантин</h3>
+          <div className="param">
+            <label>Количество: {displayParams.quarantineCount}</label>
+            <input
+              type="range" min="0" max="10" step="1"
+              value={displayParams.quarantineCount}
+              onChange={e => updateParam('quarantineCount', e.target.value)}
+            />
+          </div>
+          <div className="param">
+            <label>Радиус: {displayParams.quarantineRadius}</label>
+            <input
+              type="range" min="20" max="80" step="1"
+              value={displayParams.quarantineRadius}
+              onChange={e => updateParam('quarantineRadius', e.target.value)}
+            />
           </div>
         </div>
       </div>
 
       <div className="simulation-area">
-        <canvas
-          ref={canvasRef}
-          width={params.width}
-          height={params.height}
-        />
+        <canvas ref={canvasRef} width={displayParams.width} height={displayParams.height} />
       </div>
 
       <div className="simulation-controls">
-        <button onClick={() => controlsRef.current.start()}>Старт</button>
-        <button onClick={() => controlsRef.current.stop()}>Пауза</button>
-        <button onClick={() => controlsRef.current.reset()}>Сброс</button>
+        <button onClick={startSimulation} disabled={isRunning}>Старт</button>
+        <button onClick={stopSimulation} disabled={!isRunning}>Пауза</button>
+        <button onClick={resetSimulation}>Сброс</button>
       </div>
 
       <div className="stats">
         <h3>Статистика</h3>
-        <p>Здоровые: {stats.healthy}</p>
-        <p>Зараженные: {stats.infected}</p>
-        <p>Выздоровевшие: {stats.recovered}</p>
-        <p>Умершие: {stats.deceased}</p>
+        <div className="stats-grid">
+          <div>Здоровые: {stats.healthy}</div>
+          <div>Зараженные: {stats.infected}</div>
+          <div>Выздоровевшие: {stats.recovered}</div>
+          <div>Умершие: {stats.deceased}</div>
+          <div>В аптеках: {stats.inPharmacy}</div>
+          <div>В карантине: {stats.inQuarantine}</div>
+          <div>Заразные: {stats.contagious}</div>
+        </div>
       </div>
     </div>
   );
 };
+
 export default App;
