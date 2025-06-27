@@ -10,8 +10,8 @@ const App = () => {
     population: 150,
     initialInfected: 5,
     infectionRate: 0.4,
-    infectionDistance: 15,
-    recoveryTime: 2000,          // Увеличенное общее время болезни
+    infectionDistance: 20,
+    recoveryTime: 2000,
     mortalityRate: 0.12,
     simulationSpeed: 60,
     pharmacyCount: 4,
@@ -23,15 +23,12 @@ const App = () => {
     reinfectionRate: 0.1,
     width: 1200,
     height: 700,
-    // Новые параметры стадий болезни:
-    incubationPeriodRatio: 0.3,   // 30% времени - инкубационный период
-    progressionPeriodRatio: 0.5,  // 50% времени - активная фаза
-    // Оставшиеся 20% - фаза выздоровления
-    minRecoveryVariation: 0.7,    // Минимальная вариация времени болезни
-    maxRecoveryVariation: 1.3     // Максимальная вариация времени болезни
+    incubationPeriodRatio: 0.3,
+    progressionPeriodRatio: 0.5,
+    minRecoveryVariation: 0.7,
+    maxRecoveryVariation: 1.3
   });
 
-  // Состояние для отображения
   const [displayParams, setDisplayParams] = useState({ ...paramsRef.current });
   const [stats, setStats] = useState({
     healthy: 0,
@@ -45,6 +42,7 @@ const App = () => {
 
   const [isRunning, setIsRunning] = useState(false);
   const [showInfectionRadius, setShowInfectionRadius] = useState(false);
+  const [pulsePhase, setPulsePhase] = useState(0);
 
   // Refs
   const canvasRef = useRef(null);
@@ -55,24 +53,42 @@ const App = () => {
   const lastUpdateTime = useRef(0);
   const isRunningRef = useRef(false);
 
+  const updateParam = (name, value) => {
+    const numValue = typeof value === 'number' ? value : parseFloat(value);
+
+    // Обновляем параметры
+    paramsRef.current = { ...paramsRef.current, [name]: numValue };
+    setDisplayParams(prev => ({ ...prev, [name]: numValue }));
+
+    // Для некоторых параметров нужно перезапускать симуляцию
+    const shouldReset = [
+      'population',
+      'initialInfected',
+      'pharmacyCount',
+      'quarantineCount'
+    ].includes(name);
+
+    if (shouldReset) {
+      if (isRunningRef.current) {
+        resetSimulation();
+      } else {
+        initSimulation();
+      }
+    }
+  };
+
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
+
   // Инициализация объектов
   const initObjects = useCallback(() => {
     pharmaciesRef.current = Array.from({ length: paramsRef.current.pharmacyCount }, (_, i) =>
-      new Pharmacy(
-        i,
-        Math.random() * paramsRef.current.width,
-        Math.random() * paramsRef.current.height,
-        paramsRef
-      )
+      new Pharmacy(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, paramsRef)
     );
 
     quarantinesRef.current = Array.from({ length: paramsRef.current.quarantineCount }, (_, i) =>
-      new Quarantine(
-        i,
-        Math.random() * paramsRef.current.width,
-        Math.random() * paramsRef.current.height,
-        paramsRef
-      )
+      new Quarantine(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, paramsRef)
     );
   }, []);
 
@@ -82,18 +98,77 @@ const App = () => {
 
     peopleRef.current = Array.from({ length: paramsRef.current.population }, (_, i) => {
       const status = i < paramsRef.current.initialInfected ? 'infected' : 'healthy';
-      return new Person(
-        i,
-        Math.random() * paramsRef.current.width,
-        Math.random() * paramsRef.current.height,
-        status,
-        paramsRef
-      );
+      return new Person(i, Math.random() * paramsRef.current.width, Math.random() * paramsRef.current.height, status, paramsRef);
     });
 
     updateStats();
     drawSimulation();
   }, [initObjects]);
+
+  // Отрисовка радиуса заражения
+  const drawInfectionRadius = useCallback((ctx, person) => {
+    const pulseFactor = 1 + 0.1 * Math.sin(pulsePhase);
+    const currentRadius = paramsRef.current.infectionDistance * pulseFactor;
+
+    const gradient = ctx.createRadialGradient(
+      person.x, person.y, 0,
+      person.x, person.y, currentRadius
+    );
+    gradient.addColorStop(0, 'rgba(255, 100, 100, 0.3)');
+    gradient.addColorStop(1, 'rgba(255, 100, 100, 0)');
+
+    ctx.beginPath();
+    ctx.arc(person.x, person.y, currentRadius, 0, Math.PI * 2);
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }, [pulsePhase]);
+
+  // Отрисовка персонажа
+  const drawPerson = useCallback((ctx, person) => {
+    const radius = person.status === 'infected' ? 6 : 5;
+    ctx.beginPath();
+    ctx.arc(person.x, person.y, radius, 0, Math.PI * 2);
+    ctx.fillStyle = person.color;
+    ctx.fill();
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }, []);
+
+  // Основная отрисовка
+  const drawSimulation = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 1. Рисуем радиусы заражения
+    if (showInfectionRadius) {
+      peopleRef.current.forEach(person => {
+        if (person.status === 'infected') {
+          drawInfectionRadius(ctx, person);
+        }
+      });
+    }
+
+    // 2. Рисуем зоны
+    quarantinesRef.current.forEach(q => q.draw(ctx));
+    pharmaciesRef.current.forEach(p => p.draw(ctx));
+
+    // 3. Рисуем людей
+    peopleRef.current.forEach(person => {
+      drawPerson(ctx, person);
+    });
+  }, [showInfectionRadius, drawInfectionRadius, drawPerson]);
 
   // Игровой цикл
   const gameLoop = useCallback((timestamp) => {
@@ -106,11 +181,47 @@ const App = () => {
     const deltaTime = timestamp - lastUpdateTime.current;
     lastUpdateTime.current = timestamp;
 
+    // Анимация пульсации радиуса
+    setPulsePhase(prev => (prev + 0.02) % (Math.PI * 2));
+
     const scaledDeltaTime = deltaTime * (paramsRef.current.simulationSpeed / 60);
     updateSimulation(scaledDeltaTime);
     drawSimulation();
 
     animationFrameId.current = requestAnimationFrame(gameLoop);
+  }, [drawSimulation]);
+
+  // Обновление симуляции
+  const updateSimulation = (deltaTime) => {
+    peopleRef.current.forEach(person => {
+      person.move(pharmaciesRef.current, quarantinesRef.current, deltaTime);
+      if (person.status === 'infected') {
+        person.tryInfectOthers(peopleRef.current, quarantinesRef.current);
+      }
+    });
+    updateStats();
+  };
+
+  // Обновление статистики
+  const updateStats = useCallback(() => {
+    const newStats = {
+      healthy: 0,
+      infected: 0,
+      recovered: 0,
+      deceased: 0,
+      inPharmacy: 0,
+      inQuarantine: 0,
+      contagious: 0
+    };
+
+    peopleRef.current.forEach(person => {
+      newStats[person.status]++;
+      if (person.inPharmacy) newStats.inPharmacy++;
+      if (person.inQuarantine) newStats.inQuarantine++;
+      if (person.status === 'infected' && person.infectionStage === 'progression') newStats.contagious++;
+    });
+
+    setStats(newStats);
   }, []);
 
   // Управление симуляцией
@@ -137,129 +248,21 @@ const App = () => {
     initSimulation();
   };
 
-  // Обновление симуляции
-  const updateSimulation = (deltaTime) => {
-    peopleRef.current.forEach(person => {
-      person.move(pharmaciesRef.current, quarantinesRef.current, deltaTime);
-      if (person.status === 'infected') {
-        person.tryInfectOthers(peopleRef.current, quarantinesRef.current);
-      }
-    });
-    updateStats();
+  const toggleInfectionRadius = () => {
+    setShowInfectionRadius(!showInfectionRadius);
   };
 
-  // Отрисовка
-  const drawSimulation = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  // Автоматическая перерисовка при изменениях
+  useEffect(() => {
+    drawSimulation();
+  }, [showInfectionRadius, drawSimulation]);
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, paramsRef.current.width, paramsRef.current.height);
-
-    // Сначала рисуем все радиусы заражения под людьми
-    if (showInfectionRadius) {
-      peopleRef.current.forEach(person => {
-        if (person.status === 'infected') {
-          // Градиент для радиуса заражения
-          const gradient = ctx.createRadialGradient(
-            person.x, person.y, 0,
-            person.x, person.y, paramsRef.current.infectionDistance
-          );
-          gradient.addColorStop(0, 'rgba(255, 100, 100, 0.2)');
-          gradient.addColorStop(0.7, 'rgba(255, 50, 50, 0.1)');
-          gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
-
-          ctx.beginPath();
-          ctx.arc(person.x, person.y, paramsRef.current.infectionDistance, 0, Math.PI * 2);
-          ctx.fillStyle = gradient;
-          ctx.fill();
-
-          // Точечная граница радиуса
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath();
-          ctx.arc(person.x, person.y, paramsRef.current.infectionDistance, 0, Math.PI * 2);
-          ctx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      });
-    }
-
-    // Затем рисуем зоны (аптеки и карантины)
-    quarantinesRef.current.forEach(q => q.draw(ctx));
-    pharmaciesRef.current.forEach(p => p.draw(ctx));
-
-    // И поверх всего рисуем людей
-    peopleRef.current.forEach(person => {
-      // Разный размер в зависимости от стадии болезни
-      const radius = person.status === 'infected' ?
-        (person.infectionStage === 'progression' ? 7 : 5) : 5;
-
-      ctx.beginPath();
-      ctx.arc(person.x, person.y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = person.color;
-      ctx.fill();
-
-      // Обводка для лучшей видимости
-      ctx.lineWidth = 1;
-      ctx.strokeStyle = '#333';
-      ctx.stroke();
-      ctx.closePath();
-    });
-  };
-
-  // Обновление статистики
-  const updateStats = useCallback(() => {
-    const newStats = {
-      healthy: 0,
-      infected: 0,
-      recovered: 0,
-      deceased: 0,
-      inPharmacy: 0,
-      inQuarantine: 0,
-      contagious: 0
-    };
-
-    peopleRef.current.forEach(person => {
-      newStats[person.status]++;
-      if (person.inPharmacy) newStats.inPharmacy++;
-      if (person.inQuarantine) newStats.inQuarantine++;
-      if (person.status === 'infected' && person.infectionStage === 'progression') newStats.contagious++;
-    });
-
-    setStats(newStats);
-  }, []);
-
-  // Обработчик изменения параметров
-  const updateParam = (name, value) => {
-    const numValue = typeof value === 'number' ? value : parseFloat(value);
-
-    // Для параметров стадий болезни проверяем, чтобы сумма не превышала 100%
-    if (name === 'incubationPeriodRatio' || name === 'progressionPeriodRatio') {
-      const otherParam = name === 'incubationPeriodRatio' ? 'progressionPeriodRatio' : 'incubationPeriodRatio';
-      const total = numValue + paramsRef.current[otherParam];
-      if (total > 0.9) { // Оставляем минимум 10% на фазу выздоровления
-        return;
-      }
-    }
-
-    paramsRef.current = { ...paramsRef.current, [name]: numValue };
-    setDisplayParams(prev => ({ ...prev, [name]: numValue }));
-
-    if (['population', 'initialInfected', 'pharmacyCount', 'quarantineCount'].includes(name)) {
-      if (isRunningRef.current) resetSimulation();
-      else initSimulation();
-    }
-  };
-
-  // Инициализация
+  // Инициализация при монтировании
   useEffect(() => {
     initSimulation();
     return () => cancelAnimationFrame(animationFrameId.current);
   }, [initSimulation]);
+
 
   return (
     <div className="App">
@@ -292,23 +295,15 @@ const App = () => {
               onChange={e => updateParam('simulationSpeed', e.target.value)}
             />
           </div>
-          <label>
-            <input
-              type="checkbox"
-              checked={showInfectionRadius}
-              onChange={() => setShowInfectionRadius(!showInfectionRadius)}
-            />
-            <span>Показать радиус заражения</span>
-            <div className="radius-preview" style={{
-              display: 'inline-block',
-              width: '12px',
-              height: '12px',
-              borderRadius: '50%',
-              backgroundColor: 'rgba(255, 100, 100, 0.3)',
-              border: '1px dashed rgba(255, 0, 0, 0.5)',
-              marginLeft: '5px'
-            }} />
-          </label>
+          <button
+            onClick={toggleInfectionRadius}
+            style={{
+              backgroundColor: showInfectionRadius ? '#ffebee' : '#fff',
+              borderColor: showInfectionRadius ? '#f44336' : '#ddd'
+            }}
+          >
+            {showInfectionRadius ? 'Скрыть радиус' : 'Показать радиус'}
+          </button>
         </div>
 
         <div className="control-panel">
