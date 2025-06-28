@@ -1,23 +1,24 @@
+// Pharmacy.js - Класс, представляющий аптеку в симуляции
 export class Pharmacy {
     constructor(id, x, y, paramsRef) {
-        this.id = id;             // Уникальный идентификатор
-        this.x = x;               // Позиция по X
-        this.y = y;               // Позиция по Y
+        this.id = id;             // Уникальный идентификатор аптеки
+        this.x = x;               // Координата X на canvas
+        this.y = y;               // Координата Y на canvas
         this.paramsRef = paramsRef; // Ссылка на параметры симуляции
     }
 
-    // Отрисовка аптеки на canvas
+    // Метод отрисовки аптеки на canvas
     draw(ctx) {
         const radius = this.paramsRef.current.pharmacyRadius;
 
-        // Рисуем фон зоны
+        // Отрисовка зоны влияния аптеки (полупрозрачный круг)
         ctx.beginPath();
         ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = '#8BC34A'; // Зеленый цвет
-        ctx.globalAlpha = 0.2;     // Полупрозрачный
+        ctx.globalAlpha = 0.2;     // Полупрозрачность
         ctx.fill();
 
-        // Рисуем границу зоны
+        // Отрисовка границы зоны
         ctx.beginPath();
         ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
         ctx.strokeStyle = '#2E7D32'; // Темно-зеленый
@@ -25,7 +26,7 @@ export class Pharmacy {
         ctx.globalAlpha = 0.5;
         ctx.stroke();
 
-        // Рисуем иконку аптеки (эмодзи креста)
+        // Отрисовка иконки аптеки (эмодзи креста)
         ctx.globalAlpha = 1.0;
         ctx.fillStyle = '#2E7D32';
         ctx.font = '24px Arial';
