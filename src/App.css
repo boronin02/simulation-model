@@ -1,32 +1,60 @@
 .App {
   font-family: Arial, sans-serif;
-  max-width: 1200px;
+  max-width: 1920px;
   margin: 0 auto;
   padding: 20px;
 }
 
-.app__header {
-  display: flex;
-  justify-content: center;
+.app-title {
+  text-align: center;
+  margin-bottom: 20px;
+  color: #333;
 }
 
-.control-panels {
+.main-layout {
   display: flex;
-  flex-wrap: wrap;
-  gap: 15px;
-  margin-bottom: 20px;
+  gap: 20px;
 }
 
 .control-panel {
-  flex: 1;
-  min-width: 250px;
+  width: 280px;
   padding: 15px;
   background: #f8f9fa;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  overflow-y: auto;
+  max-height: 550px;
 }
 
-.control-panel h3 {
+.left-panel {
+  order: 1;
+}
+
+.right-panel {
+  order: 3;
+}
+
+.simulation-container {
+  flex: 1;
+  order: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-section {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #eee;
+}
+
+.panel-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.panel-section h3 {
   margin-top: 0;
   margin-bottom: 15px;
   color: #333;
@@ -35,49 +63,34 @@
 
 .param {
   margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .param label {
+  display: block;
+  margin-bottom: 5px;
   font-size: 14px;
-  min-width: 120px;
+  color: #555;
 }
 
 .param input[type="range"] {
-  flex-grow: 1;
-}
-
-.param input[type="number"] {
-  width: 60px;
-  padding: 5px;
-  border: 1px solid #000;
-  border-radius: 6px;
-}
-
-.range-inputs {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  width: 100%;
 }
 
 .simulation-area {
-  margin: 20px 0;
   border: 1px solid #ddd;
   border-radius: 8px;
   overflow: hidden;
+  background: #f9f9f9;
 }
 
 canvas {
-  background: #f9f9f9;
   display: block;
 }
 
 .simulation-controls {
   display: flex;
   gap: 10px;
-  margin-bottom: 20px;
+  justify-content: center;
 }
 
 .simulation-controls button {
@@ -88,102 +101,75 @@ canvas {
   border-radius: 4px;
   cursor: pointer;
   font-size: 14px;
+  transition: background 0.2s;
 }
 
 .simulation-controls button:hover {
   background: #45a049;
 }
 
-.stats-container {
-  display: flex;
-  gap: 20px;
-  margin-top: 20px;
+.simulation-controls button.active {
+  background: #f44336;
 }
 
-.stats,
-.legend {
-  flex: 1;
+.simulation-controls button:disabled {
+  background: #cccccc;
+  cursor: not-allowed;
+}
+
+.stats {
   padding: 15px;
   background: #f8f9fa;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.stats h3,
-.legend h3 {
+.stats h3 {
   margin-top: 0;
   margin-bottom: 15px;
   font-size: 16px;
 }
 
-.stats p {
-  margin: 8px 0;
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.stats-grid div {
   font-size: 14px;
 }
 
-.stats span {
-  font-weight: bold;
-}
+@media (max-width: 1200px) {
+  .main-layout {
+    flex-direction: column;
+  }
 
-.color-box {
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
-  border: 1px solid #ddd;
-}
+  .control-panel {
+    width: 100%;
+    max-height: none;
+  }
 
-.healthy {
-  background: #4CAF50;
-}
+  .left-panel,
+  .right-panel {
+    order: 0;
+  }
 
-.vaccinated {
-  background: #a0e8a0;
-}
+  .simulation-container {
+    order: 1;
+  }
 
-.infected {
-  background: #FF5252;
-}
-
-.super-spreader {
-  background: #FF5252;
-  border: 1px solid orange;
-}
-
-.recovered {
-  background: #2196F3;
-}
-
-.deceased {
-  background: #000000;
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
-  .control-panel {
-    min-width: 100%;
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 
-  .stats-container {
-    flex-direction: column;
+  .simulation-controls {
+    flex-wrap: wrap;
   }
-}
-
-.param label {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-}
-
-.param label input[type="checkbox"] {
-  margin-right: 8px;
-  cursor: pointer;
-}
-
-/* Стили для canvas */
-.simulation-area {
-  position: relative;
-  margin: 20px 0;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  overflow: hidden;
 }
